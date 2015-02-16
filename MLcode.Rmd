@@ -1,0 +1,107 @@
+---
+title: "Practical Machine Learning: Prediction Assignment Writeup"
+author: "Livan Alonso"
+date: "January 23, 2015"
+output: html_document
+---
+
+##Background
+
+The goal of this project is to predict the manner in which 6 participants did the exercise. Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). The data was collected from accelerometers on the belt, forearm, arm, and dumbell of participants. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+
+
+```{r, echo=FALSE}
+#Downloading the data of project
+setwd("~/Documents/Livan/Programming/Courses/Coursera_PracticalMachineLearning/Project")
+file.training<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(file.training,destfile="training.csv",method="curl")
+file.testing<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(file.testing,destfile="testing.csv",method="curl")
+```
+
+### Reading files
+```{r}
+training<-read.csv("training.csv",header = TRUE,na.strings=c("#DIV/0!","","NA"))
+testing<-read.csv("testing.csv",header = TRUE,na.strings=c("#DIV/0!","","NA"))
+```
+
+### Data Preprocessing and Transformation
+
+Split the orginal training data in two datasets subtraining and subtesting.
+
+```{r, echo=FALSE}
+library(caret)
+inTrain<-createDataPartition(y=training$classe,p=0.6,list=FALSE)
+subtraining<-training[inTrain,]
+subtesting<-training[-inTrain,]
+```
+
+
+The simple first step in looking at the data include finding missing values. The collected data corresponds to measurements of 160 variables, however 100 variables contains numerous missing values (more than 95% of measurements are NA values). The data was subset based on this analysis. The new training and testing data subsets does not contain missing values (60 variables).
+
+```{r}
+feature.Nna<-colSums((!is.na(subtraining)*1))/dim(subtraining)[[1]]
+list.features<-names(feature.Nna)[as.numeric(feature.Nna)>0.5] ## the cutoff value provides same results  [0.05 to 1]
+dim(subtraining)[[2]]-length(list.features) ## 
+newtraining<-subtraining[,list.features]
+dim(newtraining)
+```
+
+The next step is to remove those variables that have very little variability. The nearZeroVar function can be used to identify those variables, which likely would not be good predictors (also, index column was removed ). It can be noticed that we have reduced the number of variables to 58.
+
+```{r}
+nzv<-nearZeroVar(newtraining,saveMetrics=TRUE)
+list.nzv<-rownames(nzv)[nzv$nzv==TRUE]
+dim(newtraining)[2]-length(list.nzv)-1
+list.nzv<-c("X",list.nzv)
+newtraining<-newtraining[!names(newtraining) %in% list.nzv]
+dim(newtraining)
+```
+
+By simple exploratory data analysis, it can be noticed that variables, such as: user_name,raw_timestamp_part_1,raw_timestamp_part_2 and cvtd_timestamp should not be part of our predictors.
+
+
+```{r}
+rem.variables<-c("user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp")
+newtraining<-newtraining[,!names(newtraining) %in% rem.variables]
+dim (newtraining)
+col.newtraining<-names(newtraining)
+newtesting<-subtesting[col.newtraining]
+```
+
+##Testing different classification algoritms 
+
+
+###Predicting with trees
+
+```{r}
+library(rpart)
+modFitTree<-rpart(classe~.,data=newtraining,method="class")
+predTree<-predict(modFitTree,newdata=newtesting,type="class")
+
+#Confusion matrix was calculated to visualize the performance of the algoritms.
+
+confusionMatrix(predTree,subtesting$classe)
+library(rattle)
+fancyRpartPlot(modFitTree)
+```
+
+###Predicting with random forest
+
+```{r}
+library(randomForest)
+modFitRF<-randomForest(classe~.,data=newtraining,method="class")
+predRF<-predict(modFitRF,newdata=newtesting,type="class")
+confusionMatrix(predRF,newtesting$classe)
+plot(modFitRF,main="Random Forest model (error rate)")
+legend("topright", colnames(modFitRF$err.rate),col=1:4,cex=0.8,fill=1:4)
+```
+
+###Predicting with boosting
+```{r}
+modFitB<-train(classe~.,data=newtraining, method="gbm",verbose=FALSE)
+print(modFitB)
+```
+
+####Ramdon Forest provided better results, compared with other used algorithms.
